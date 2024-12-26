@@ -1,85 +1,136 @@
-import express from 'express';
-import fs from 'fs';
-import path from 'path';
-import cors from 'cors';
-import mongoose from 'mongoose';
-import HighScorePage from './frontend/src/HighScorePage.js';
+import express from "express";
+import cors from "cors";
+import mongoose from "mongoose";
+import fs from "fs";
+import path from "path";
+import dotenv from "dotenv";
+dotenv.config();
 
 const app = express();
+const PORT = 5080;
 
-// Enable CORS for all routes
+// MongoDB Setup
+mongoose
+  .connect(process.env.MONGODB_URI, {
+    serverSelectionTimeoutMS: 5000, // Timeout after 5 seconds
+  })
+  .then(() => {
+    console.log("Connected to MongoDB Atlas!");
+  })
+  .catch((err) => {
+    console.error("MongoDB connection error:", err);
+  });
+// Middleware
 app.use(cors());
 app.use(express.json());
-
-// Set up route to serve words.json
-app.get('/words.json', (req, res) => {
-    // Set content type for JSON response
-    res.setHeader('Content-Type', 'application/json');
-
-    // Read the words.json file
-    fs.readFile(path.join(__dirname, 'words.json'), (err, data) => {
-        if (err) {
-            // If there's an error reading the file, send an error response
-            res.status(500).json({ error: 'Internal Server Error' });
-            return;
-        }
-
-        // Send the contents of the words.json file as the response
-        res.status(200).send(data);
-    });
-});
-
-//Connect to MongoDB
-mongoose.connect('mongodb+srv://WilliamLu:DTgG.q2d.4TseLG@cluster0.fbflxmu.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0', {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-});
-
-// Define MongoDB Schema
-const userSchema = new mongoose.Schema({
+// Define the High Score schema and model
+const highScoreSchema = new mongoose.Schema({
   name: String,
-  email: String,
-  age: Number,
+  wordLength: Number,
+  timeTaken: Number,
+  guesses: Number,
 });
+const HighScore = mongoose.model("HighScore", highScoreSchema);
 
-// Define MongoDB Model
-const User = mongoose.model('User', userSchema);
-
-// Handle form submission
-app.post('/api/users', async (req, res) => {
-  const { name, email, age } = req.body;
-
+app.post("/api/highscores", async (req, res) => {
   try {
-    // Create a new user document
-    const newUser = new User({ name, email, age });
-    // Save the user document to the database
-    await newUser.save();
-    res.status(201).json(newUser);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    const { name, wordLength, timeTaken, guesses } = req.body;
+    const newScore = new HighScore({ name, wordLength, timeTaken, guesses });
+    await newScore.save();
+    res.status(201).json({ message: "High score saved!" });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to save high score" });
   }
 });
 
-/*get the highscore*/ 
-// Import the User model if you have defined it
-// Define a GET route to fetch user data
-// Define a GET route to fetch user data
-app.get('/api/users', async (req, res) => {
-  try {
-    // Query the database to fetch all users
-    const users = await User.find();
-    res.status(200).json(users);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal Server Error' });
+
+
+// Load words from words.json
+import { fileURLToPath } from "url";
+
+// Fix for ES Modules on Windows
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Resolve the path to words.json
+const wordsPath = path.resolve(__dirname, "data", "words.json");
+
+let wordList = [];
+
+try {
+  const wordsData = fs.readFileSync(wordsPath, "utf-8");
+  wordList = JSON.parse(wordsData);
+  console.log("Words loaded successfully!");
+} catch (err) {
+  console.error("Failed to load words.json:", err);
+}
+
+// Current word for the game session
+let currentWord = "";
+
+// Generate and return a new random word
+app.get("/api/word", (req, res) => {
+  if (wordList.length === 0) {
+    return res.status(500).json({ error: "No words available." });
   }
-  console.log("json is fetched")
+  const randomIndex = Math.floor(Math.random() * wordList.length);
+  currentWord = wordList[randomIndex];
+  res.json({ word: currentWord, wordLength: currentWord.length });
 });
 
-
-
-const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
-    console.log(`Server is running on http://localhost:${PORT}`);
+// High Score Routes
+app.get("/api/highscores", async (req, res) => {
+  try {
+    const highScores = await HighScore.find().sort({ timeTaken: 1 });
+    res.json(highScores);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch high scores" });
+  }
 });
+
+// Validate user guesses
+app.post("/api/guess", (req, res) => {
+  const { userWord } = req.body;
+
+  // Validate input
+  if (!userWord || userWord.trim().length !== currentWord.length) {
+    return res.status(400).json({ error: "Invalid guess length." });
+  }
+
+  const feedback = [];
+  const wordCounts = {};
+
+  // Count occurrences of each letter in currentWord
+  for (const letter of currentWord) {
+    wordCounts[letter] = (wordCounts[letter] || 0) + 1;
+  }
+
+  // First pass: Check for correct letters in the correct positions
+  for (let i = 0; i < userWord.length; i++) {
+    if (userWord[i] === currentWord[i]) {
+      feedback.push({ letter: userWord[i], result: "correct" });
+      wordCounts[userWord[i]] -= 1;
+    } else {
+      feedback.push({ letter: userWord[i], result: "incorrect" });
+    }
+  }
+
+  // Second pass: Check for misplaced letters
+  for (let i = 0; i < userWord.length; i++) {
+    if (
+      feedback[i].result === "incorrect" &&
+      currentWord.includes(userWord[i]) &&
+      wordCounts[userWord[i]] > 0
+    ) {
+      feedback[i].result = "misplaced";
+      wordCounts[userWord[i]] -= 1;
+    }
+  }
+
+  const isCorrect = feedback.every((entry) => entry.result === "correct");
+
+  res.json({ feedback, isCorrect });
+});
+
+// Start the server
+app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));

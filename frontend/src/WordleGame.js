@@ -1,111 +1,164 @@
-//wordleGame.js
-import React, { useState, useEffect } from 'react';
-import { checkWord, getRandomWord } from './wordFunctions.js';
-import './App.css';
-
-
-function Square({ result, letter }) {
-  let color;
-  if (result === 'correct') {
-    color = 'green';
-  } else if (result === 'incorrect') {
-    color = 'red';
-  } else if (result === 'misplaced') {
-    color = 'yellow';
-  }
-
-  return (
-    <div style={{ width: '50px', height: '50px', backgroundColor: color, margin: '5px', display: 'inline-block' }}>
-      {letter.toUpperCase()}
-    </div>
-  );
-}
+import React, { useState, useEffect } from "react";
+import "./styles/WordleGame.css";
+import { useNavigate } from "react-router-dom";
 
 function WordleGame() {
-  const [userWord, setUserWord] = useState('');
-  const [result, setResult] = useState([]);
-  const [randomWord, setRandomWord] = useState('');
+  const [wordLength, setWordLength] = useState(0);
+  const [currentWord, setCurrentWord] = useState(""); // Store the word for testing
+  const [userWord, setUserWord] = useState("");
+  const [attempts, setAttempts] = useState([]);
+  const [isCorrect, setIsCorrect] = useState(false);
   const [tries, setTries] = useState(0);
-  const [showMessage, setShowMessage] = useState(false);
+  const maxTries = 6; // Limit the number of attempts
+  const [playerName, setPlayerName] = useState(""); // Player's name for high score submission
+  const [startTime, setStartTime] = useState(Date.now()); // Track game start time
+  const [isHighScoreSubmitted, setIsHighScoreSubmitted] = useState(false); // Track if high score is submitted
+  const [feedbackMessage, setFeedbackMessage] = useState(""); // State for feedback messages
+
+  const navigate = useNavigate(); // Initialize the navigate function
 
   useEffect(() => {
-    // Fetch a random word when the component mounts
-    async function fetchRandomWord() {
-      try {
-        console.log('Fetching a random word...');
-        const word = await getRandomWord();
-        setRandomWord(word);
-      } catch (error) {
-        console.error('Error fetching random word:', error);
-      }
-    }
-    fetchRandomWord();
-  }, []); // Empty dependency array ensures it runs only once on mount
+    // Fetch the random word and its length when the game starts
+    fetch("http://localhost:5080/api/word")
+      .then((response) => response.json())
+      .then((data) => {
+        setWordLength(data.wordLength);
+        setCurrentWord(data.word); // Display the word for testing
+        setStartTime(Date.now()); // Reset start time when a new game starts
+      })
+      .catch((err) => console.error("Error fetching word:", err));
+  }, []);
 
   const handleSubmit = (e) => {
-    e.preventDefault(); // Prevent default form submission behavior
-    // Check if userWord is empty
-  if (!userWord.trim()) {
-    // If userWord is empty, return early
-    return;
-  }
-    try {
-      console.log('Checking the word...');
-      const wordCheckResult = checkWord(randomWord, userWord); // Check the user's input against the random word
-      setResult(wordCheckResult); // Set the result
-      setTries(tries + 1); // Increment the number of tries
+    e.preventDefault();
   
-      // Check if all letters are correct
-      const isAllCorrect = wordCheckResult.every((res) => res.result === 'correct');
-      if (isAllCorrect) {
-        setShowMessage(true); // Show the message only when all letters are correct
-      } else {
-        setShowMessage(false); // Hide the message otherwise
-      }
-    } catch (error) {
-      console.error('Error checking word:', error);
+    if (userWord.trim().length !== wordLength) {
+      setFeedbackMessage(`Your guess must be ${wordLength} letters long!`);
+      return;
     }
+  
+    setFeedbackMessage(""); 
+  
+    fetch("http://localhost:5080/api/guess", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ userWord }),
+    })
+      .then((response) => response.json())
+      .then((data) => {
+        setAttempts((prev) => [...prev, data.feedback]);
+        setIsCorrect(data.isCorrect);
+        setTries((prev) => prev + 1);
+        setUserWord("");
+      })
+      .catch((err) => console.error("Error submitting guess:", err));
   };
   
 
-  const handleInputChange = (e) => {
-    // Limit input to 5 characters
-    setUserWord(e.target.value/*.slice(0, 5)*/);
+  const handleHighScoreSubmit = (e) => {
+    e.preventDefault();
+
+    const timeTaken = Math.floor((Date.now() - startTime) / 1000); // Calculate time taken
+
+    fetch("http://localhost:5080/api/highscores", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name: playerName,
+        wordLength,
+        timeTaken,
+        guesses: tries,
+      }),
+    })
+      .then((response) => response.json())
+      .then(() => {
+        setIsHighScoreSubmitted(true); // Mark high score as submitted
+        setPlayerName("");
+      })
+      .catch((err) => console.error("Error saving high score:", err));
   };
 
-  const handleNewWordClick = async () => {
-    try {
-      setShowMessage(false); // Hide the message
-      setResult([]); // Clear the result
-      setUserWord(''); // Clear the user's input
-      setTries(0); // Reset the number of tries
-      const word = await getRandomWord(); // Fetch a new random word
-      setRandomWord(word);
-    } catch (error) {
-      console.error('Error fetching new word:', error);
-    }
+  const renderAttempts = () => {
+    return attempts.map((attempt, index) => (
+      <div key={index} className="wordle-attempts">
+        {attempt.map((res, i) => (
+          <div key={i} className={`square ${res.result}`}>
+            {res.letter ? res.letter.toUpperCase() : ""}
+          </div>
+        ))}
+      </div>
+    ));
   };
 
   return (
-    <div className='wordle-container'>
-        <p>{`Number of letters: ${randomWord.length}`}</p>
-
-        <form className="wordle-form" onSubmit={handleSubmit}>
-    <input className="wordle-input" type="text" value={userWord} onChange={handleInputChange} maxLength={randomWord.length} />
-    <button className="wordle-button" type="submit">Submit</button>
-  </form>
-  <div className="wordle-result">
-    {result.map((res, index) => (
-      <Square key={index} result={res.result} letter={res.letter} />
-    ))}
-  </div>
-  {showMessage && (
-    <div className="wordle-message">
-      <p>{`You guessed the word in ${tries} tries`}</p>
-      <button className="wordle-new-word-button" onClick={handleNewWordClick}>Get New Word</button>
-    </div>
+    <div className="wordle-container">
+      <h1 className="wordle-title">Wordle Game</h1>
+      <div className="wordle-header">
+        <strong>Test Mode:</strong>{" "}
+        <span className="test-word">{currentWord}</span>
+      </div>
+      {isCorrect ? (
+        <div className="success-message">
+          <h2>Congratulations! You guessed the word in {tries} tries!</h2>
+          {!isHighScoreSubmitted ? (
+            <form onSubmit={handleHighScoreSubmit} className="high-score-form">
+              <input
+                type="text"
+                placeholder="Enter your name"
+                value={playerName}
+                onChange={(e) => setPlayerName(e.target.value)}
+                className="high-score-input"
+              />
+              <button type="submit" className="high-score-button">
+                Save High Score
+              </button>
+            
+            </form>
+          ) : (
+            <p className="success-message">Your high score has been saved!</p>
+          )}
+        </div>
+      ) : tries >= maxTries ? (
+        <h2 className="game-over-message">
+          Game Over! You've used all {maxTries} attempts.
+        </h2>
+      ) : (
+        <>
+          <p>Word Length: {wordLength}</p>
+          {wordLength > 0 && (
+            <form onSubmit={handleSubmit} className="wordle-form">
+              <input
+                type="text"
+                maxLength={wordLength}
+                value={userWord}
+                onChange={(e) => setUserWord(e.target.value)}
+                className="wordle-input"
+              />
+              <button type="submit" className="wordle-button">
+                Submit
+              </button>
+            </form>
+          )}
+             {feedbackMessage && (
+            <p className="feedback-message">{feedbackMessage}</p>
+          )}
+          <div>{renderAttempts()}</div>
+         
+        </>
       )}
+       <button
+            type="button"
+            className="back-button"
+            onClick={() => navigate("/")}
+          >
+            Back to Home
+          </button>
     </div>
+    
   );
 }
 
