@@ -53,8 +53,6 @@ Then ...
 - **Backend not starting?** Ensure Node.js is installed and run `npm install`.
 - **Frontend not loading?** Make sure the backend is running and restart the frontend (`npm start`).
 
-## 📜 License
-This project is open-source under the [MIT License](LICENSE).
 
 
 ![alt text](image.png)  `http://localhost:3000`
