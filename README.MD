@@ -28,7 +28,7 @@ Then ...
 1. Go to the frontend directory:
    from WordleWow  file...
 
-   # <span style="color: green; font-size: 20px;"> cd cd frontend </span>
+   # <span style="color: green; font-size: 20px;">cd frontend </span>
    
 2. Install dependencies:
    
